@@ -8,6 +8,12 @@ struct DerivationAnalysisResult
 {
     double score = 0.0;
     bool likely_derived = false;
+    int alignment_inliers = 0;
+    double alignment_inlier_ratio = 0.0;
+    int changed_regions = 0;
+    double changed_area_ratio = 0.0;
+    double unchanged_similarity = 0.0;
+    double cleanup_consistency = 0.0;
     std::string summary;
 };
 

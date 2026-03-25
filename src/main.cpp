@@ -30,7 +30,7 @@ int main(int argc, char** argv)
         const std::string image_path2 = argv[2];
         const std::string output_directory = argc == 4
                                                  ? argv[3]
-                                                 : (std::filesystem::path("data") / "out").string();
+                                                 : (std::filesystem::path("../data") / "out").string();
 
         const cv::Mat image1 = utils::loadColorImage(image_path1);
         const cv::Mat image2 = utils::loadColorImage(image_path2);

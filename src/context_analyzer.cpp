@@ -14,7 +14,7 @@ namespace
 constexpr int kMaxSide = 1400;
 constexpr int kMaxFeatures = 2500;
 constexpr float kRatioTest = 0.78f;
-constexpr double kHomographyRansacThreshold = 3.0;
+constexpr double kHomographyRansacThreshold = 5.0;
 constexpr double kDecisionThreshold = 0.50;
 }  // namespace
 

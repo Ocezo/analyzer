@@ -4,9 +4,11 @@
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/features2d.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <filesystem>
 #include <sstream>
 #include <vector>
 
@@ -135,9 +137,47 @@ double computeUnchangedSimilarity(const cv::Mat& aligned1, const cv::Mat& image2
     const cv::Scalar mean_difference = cv::mean(difference, unchanged_mask);
     return utils::clamp01(1.0 - mean_difference[0] / 255.0);
 }
+
+void exportArtifacts(const cv::Mat& aligned1,
+                     const cv::Mat& image2,
+                     const cv::Mat& change_mask,
+                     const std::string& output_directory,
+                     DerivationAnalysisResult& result)
+{
+    if (output_directory.empty())
+    {
+        return;
+    }
+
+    std::filesystem::create_directories(output_directory);
+
+    const std::filesystem::path base(output_directory);
+    const std::filesystem::path aligned_path = base / "aligned_image1_to_image2.jpg";
+    const std::filesystem::path mask_path = base / "derivation_change_mask.png";
+    const std::filesystem::path overlay_path = base / "derivation_overlay.jpg";
+
+    cv::Mat overlay = image2.clone();
+    cv::Mat red_overlay(image2.size(), image2.type(), cv::Scalar(0, 0, 255));
+    red_overlay.copyTo(overlay, change_mask);
+    cv::addWeighted(overlay, 0.35, image2, 0.65, 0.0, overlay);
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(change_mask.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    cv::drawContours(overlay, contours, -1, cv::Scalar(0, 255, 255), 2);
+
+    cv::imwrite(aligned_path.string(), aligned1);
+    cv::imwrite(mask_path.string(), change_mask);
+    cv::imwrite(overlay_path.string(), overlay);
+
+    result.aligned_image_path = aligned_path.string();
+    result.change_mask_path = mask_path.string();
+    result.overlay_path = overlay_path.string();
+}
 }  // namespace
 
-DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1, const cv::Mat& image2) const
+DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1,
+                                                     const cv::Mat& image2,
+                                                     const std::string& output_directory) const
 {
     DerivationAnalysisResult result;
 
@@ -232,6 +272,7 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1, cons
 
     result.unchanged_similarity = computeUnchangedSimilarity(aligned1, resized2, change_mask);
     result.cleanup_consistency = computeCleanupConsistency(aligned1, resized2, change_mask);
+    exportArtifacts(aligned1, resized2, change_mask, output_directory, result);
 
     const double alignment_score = utils::clamp01(0.60 * result.alignment_inlier_ratio +
                                                   0.40 * std::min(1.0, result.alignment_inliers / 25.0));

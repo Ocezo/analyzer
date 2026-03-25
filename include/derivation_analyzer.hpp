@@ -14,11 +14,16 @@ struct DerivationAnalysisResult
     double changed_area_ratio = 0.0;
     double unchanged_similarity = 0.0;
     double cleanup_consistency = 0.0;
+    std::string aligned_image_path;
+    std::string change_mask_path;
+    std::string overlay_path;
     std::string summary;
 };
 
 class DerivationAnalyzer
 {
 public:
-    DerivationAnalysisResult analyze(const cv::Mat& image1, const cv::Mat& image2) const;
+    DerivationAnalysisResult analyze(const cv::Mat& image1,
+                                     const cv::Mat& image2,
+                                     const std::string& output_directory = "") const;
 };

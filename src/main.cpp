@@ -4,6 +4,7 @@
 #include "utils.hpp"
 
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -17,9 +18,9 @@ std::string yesNo(bool value)
 
 int main(int argc, char** argv)
 {
-    if (argc != 3)
+    if (argc != 3 && argc != 4)
     {
-        std::cerr << "Usage: " << argv[0] << " <image1> <image2>\n";
+        std::cerr << "Usage: " << argv[0] << " <image1> <image2> [output_dir]\n";
         return 1;
     }
 
@@ -27,6 +28,9 @@ int main(int argc, char** argv)
     {
         const std::string image_path1 = argv[1];
         const std::string image_path2 = argv[2];
+        const std::string output_directory = argc == 4
+                                                 ? argv[3]
+                                                 : (std::filesystem::path("data") / "out").string();
 
         const cv::Mat image1 = utils::loadColorImage(image_path1);
         const cv::Mat image2 = utils::loadColorImage(image_path2);
@@ -36,7 +40,7 @@ int main(int argc, char** argv)
         AiDetector ai_detector;
 
         const ContextAnalysisResult context = context_analyzer.analyze(image1, image2);
-        const DerivationAnalysisResult derivation = derivation_analyzer.analyze(image1, image2);
+        const DerivationAnalysisResult derivation = derivation_analyzer.analyze(image1, image2, output_directory);
         const AiDetectionResult ai1 = ai_detector.analyze(image1);
         const AiDetectionResult ai2 = ai_detector.analyze(image2);
 
@@ -53,6 +57,13 @@ int main(int argc, char** argv)
         std::cout << "Score: " << utils::formatScore(derivation.score)
                   << " -> Image 2 likely derived from Image 1: " << yesNo(derivation.likely_derived) << '\n';
         std::cout << "Details: " << derivation.summary << "\n\n";
+        if (!derivation.overlay_path.empty())
+        {
+            std::cout << "Artifacts saved to:\n";
+            std::cout << "  aligned: " << derivation.aligned_image_path << '\n';
+            std::cout << "  mask:    " << derivation.change_mask_path << '\n';
+            std::cout << "  overlay: " << derivation.overlay_path << "\n\n";
+        }
 
         std::cout << "[AI Generation Suspicion]\n";
         std::cout << "Image 1: " << utils::formatScore(ai1.score) << " -> " << ai1.summary << '\n';

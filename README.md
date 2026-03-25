@@ -76,8 +76,10 @@ This is **not a reliable AI detector**, only a heuristic indicator.
 │   ├── ai_detector.cpp
 │   └── utils.cpp
 └── data/
-    ├── image1.jpg
-    └── image2.jpg
+    ├── in/
+    │   ├── image1.jpg
+    │   └── image2.jpg
+    └── out/
 ```
 
 ---
@@ -109,7 +111,8 @@ make -j
 ## Usage
 
 ```bash
-./image_analyzer image1.jpg image2.jpg
+./image_analyzer ../data/in/image1.jpg ../data/in/image2.jpg
+./image_analyzer ../data/in/image1.jpg ../data/in/image2.jpg ../data/out
 ```
 
 ---
@@ -146,4 +149,3 @@ It must NOT be used for:
 - proof of authenticity
 
 Results should always be interpreted with caution.
-

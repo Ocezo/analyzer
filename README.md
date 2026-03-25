@@ -1,4 +1,4 @@
-# Image Consistency & Authenticity Analyzer (OpenCV C++)
+# Image Consistency & Authenticity Analyzer
 
 ## Overview
 

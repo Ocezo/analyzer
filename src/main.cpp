@@ -1,3 +1,5 @@
+#include <opencv2/core/utils/logger.hpp>
+
 #include "ai_detector.hpp"
 #include "context_analyzer.hpp"
 #include "derivation_analyzer.hpp"
@@ -18,6 +20,8 @@ std::string yesNo(bool value)
 
 int main(int argc, char** argv)
 {
+    cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_ERROR);
+
     if (argc != 3 && argc != 4)
     {
         std::cerr << "Usage: " << argv[0] << " <image1> <image2> [output_dir]\n";

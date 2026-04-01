@@ -6,8 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_BUILD_RPATH "\$ORIGIN/lib")
-set(CMAKE_INSTALL_RPATH "\$ORIGIN/lib")
+#set(CMAKE_BUILD_RPATH "\$ORIGIN/lib")
+#set(CMAKE_INSTALL_RPATH "\$ORIGIN/lib")
 
 find_package(OpenCV 4.5 REQUIRED COMPONENTS core imgcodecs imgproc features2d calib3d)
 

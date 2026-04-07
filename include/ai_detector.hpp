@@ -17,4 +17,5 @@ class AiDetector
 {
 public:
     AiDetectionResult analyze(const cv::Mat& image) const;
+    static std::string suspicionLabel(double score);
 };

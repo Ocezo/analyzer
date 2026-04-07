@@ -8,13 +8,34 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <numeric>
 #include <string>
+#include <vector>
 
 namespace
 {
 std::string yesNo(bool value)
 {
     return value ? "YES" : "NO";
+}
+
+double averageAiScore(const std::vector<AiDetectionResult>& results)
+{
+    if (results.empty())
+    {
+        return 0.0;
+    }
+
+    const double total = std::accumulate(
+        results.begin(),
+        results.end(),
+        0.0,
+        [](double sum, const AiDetectionResult& result)
+        {
+            return sum + result.score;
+        });
+
+    return total / static_cast<double>(results.size());
 }
 }  // namespace
 
@@ -47,6 +68,8 @@ int main(int argc, char** argv)
         const DerivationAnalysisResult derivation = derivation_analyzer.analyze(image1, image2, output_directory);
         const AiDetectionResult ai1 = ai_detector.analyze(image1);
         const AiDetectionResult ai2 = ai_detector.analyze(image2);
+        const std::vector<AiDetectionResult> ai_results = {ai1, ai2};
+        const double average_ai_score = averageAiScore(ai_results);
 
         std::cout << "[Context Similarity]\n";
         std::cout << "Score: " << utils::formatScore(context.score)
@@ -70,8 +93,15 @@ int main(int argc, char** argv)
         }
 
         std::cout << "[AI Generation Suspicion]\n";
-        std::cout << "Image 1: " << utils::formatScore(ai1.score) << " -> " << ai1.summary << '\n';
-        std::cout << "Image 2: " << utils::formatScore(ai2.score) << " -> " << ai2.summary << '\n';
+        std::cout << "Score: " << utils::formatScore(average_ai_score)
+                  << " -> " << AiDetector::suspicionLabel(average_ai_score) << '\n';
+        for (std::size_t index = 0; index < ai_results.size(); ++index)
+        {
+            const AiDetectionResult& result = ai_results[index];
+            std::cout << "Image " << (index + 1) << ": "
+                      << utils::formatScore(result.score)
+                      << " -> " << result.summary << '\n';
+        }
     }
     catch (const std::exception& exception)
     {

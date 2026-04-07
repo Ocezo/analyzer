@@ -199,7 +199,9 @@ double computeFrequencySuspicion(const cv::Mat& gray)
     return utils::clamp01((peak_zscore - 3.5) / 4.5);
 }
 
-std::string suspicionLabel(double score)
+}  // namespace
+
+std::string AiDetector::suspicionLabel(double score)
 {
     if (score >= 0.70)
     {
@@ -211,7 +213,6 @@ std::string suspicionLabel(double score)
     }
     return "Low suspicion";
 }
-}  // namespace
 
 AiDetectionResult AiDetector::analyze(const cv::Mat& image) const
 {
@@ -233,7 +234,7 @@ AiDetectionResult AiDetector::analyze(const cv::Mat& image) const
                                   0.25 * result.jpeg_score);
 
     std::ostringstream summary;
-    summary << suspicionLabel(result.score)
+    summary << AiDetector::suspicionLabel(result.score)
             << " (noise: " << utils::formatScore(result.noise_score)
             << ", jpeg: " << utils::formatScore(result.jpeg_score)
             << ", frequency: " << utils::formatScore(result.frequency_score) << ")";

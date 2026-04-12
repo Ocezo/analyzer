@@ -82,7 +82,7 @@ int main(int argc, char** argv)
 
         std::cout << "[Derivation Analysis]\n";
         std::cout << "Score: " << utils::formatScore(derivation.score)
-                  << " -> Image 2 likely derived from Image 1: " << yesNo(derivation.likely_derived) << '\n';
+                  << " -> Image 2 from Image 1: " << yesNo(derivation.likely_derived) << '\n';
         std::cout << "Details: " << derivation.summary << "\n\n";
         if (!derivation.overlay_path.empty())
         {

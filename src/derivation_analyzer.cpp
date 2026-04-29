@@ -303,7 +303,7 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const utils::FeatureMatchDa
 
     cv::Mat aligned1;
     cv::warpPerspective(fmd.resized1, aligned1, fmd.homography, fmd.resized2.size(),
-                        cv::INTER_LINEAR, cv::BORDER_REFLECT);
+                        cv::INTER_LINEAR, cv::BORDER_CONSTANT);
 
     const cv::Mat change_mask = computeChangeMask(aligned1, fmd.resized2);
     result.changed_regions = countChangedRegions(change_mask);

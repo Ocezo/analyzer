@@ -3,7 +3,6 @@
 #include "utils.hpp"
 
 #include <opencv2/calib3d.hpp>
-#include <opencv2/features2d.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -14,7 +13,7 @@
 
 namespace
 {
-constexpr int kMaxSide = 1400;
+constexpr double kDecisionThreshold = 0.55;
 
 void drawCross(cv::Mat& img, cv::Point2f pt, const cv::Scalar& color, int arm = 5)
 {
@@ -22,10 +21,6 @@ void drawCross(cv::Mat& img, cv::Point2f pt, const cv::Scalar& color, int arm = 
     cv::line(img, {p.x - arm, p.y}, {p.x + arm, p.y}, color, 1, cv::LINE_AA);
     cv::line(img, {p.x, p.y - arm}, {p.x, p.y + arm}, color, 1, cv::LINE_AA);
 }
-constexpr int kMaxFeatures = 2500;
-constexpr float kRatioTest = 0.78f;
-constexpr double kHomographyRansacThreshold = 5.0;
-constexpr double kDecisionThreshold = 0.55;
 
 cv::Mat computeChangeMask(const cv::Mat& aligned1, const cv::Mat& image2)
 {
@@ -267,100 +262,58 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1,
                                                      const std::string& output_directory) const
 {
     DerivationAnalysisResult result;
-
     if (image1.empty() || image2.empty())
     {
         result.summary = "At least one input image is empty.";
         return result;
     }
+    return analyze(utils::computeFeatureAlignment(image1, image2), output_directory);
+}
 
-    const cv::Mat resized1 = utils::resizeToMaxSide(image1, kMaxSide);
-    const cv::Mat resized2 = utils::resizeToMaxSide(image2, kMaxSide);
+DerivationAnalysisResult DerivationAnalyzer::analyze(const utils::FeatureMatchData& fmd,
+                                                     const std::string& output_directory) const
+{
+    DerivationAnalysisResult result;
 
-    cv::Mat gray1;
-    cv::Mat gray2;
-    cv::cvtColor(resized1, gray1, cv::COLOR_BGR2GRAY);
-    cv::cvtColor(resized2, gray2, cv::COLOR_BGR2GRAY);
-
-    cv::Ptr<cv::Feature2D> detector;
-    int matcher_norm = cv::NORM_L2;
-
-    try
+    if (fmd.resized1.empty() || fmd.resized2.empty())
     {
-        detector = cv::SIFT::create(kMaxFeatures);
-    }
-    catch (const cv::Exception&)
-    {
-        detector = cv::ORB::create(kMaxFeatures);
-        matcher_norm = cv::NORM_HAMMING;
+        result.summary = "At least one input image is empty.";
+        return result;
     }
 
-    std::vector<cv::KeyPoint> keypoints1;
-    std::vector<cv::KeyPoint> keypoints2;
-    cv::Mat descriptors1;
-    cv::Mat descriptors2;
-    detector->detectAndCompute(gray1, cv::noArray(), keypoints1, descriptors1);
-    detector->detectAndCompute(gray2, cv::noArray(), keypoints2, descriptors2);
-
-    if (descriptors1.empty() || descriptors2.empty())
+    if (!fmd.descriptors_available)
     {
         result.summary = "Not enough local features were detected to align the images.";
         return result;
     }
 
-    cv::BFMatcher matcher(matcher_norm);
-    std::vector<std::vector<cv::DMatch>> knn_matches;
-    matcher.knnMatch(descriptors1, descriptors2, knn_matches, 2);
-
-    std::vector<cv::DMatch> good_matches;
-    for (const auto& pair : knn_matches)
-    {
-        if (pair.size() >= 2 && pair[0].distance < kRatioTest * pair[1].distance)
-        {
-            good_matches.push_back(pair[0]);
-        }
-    }
-
-    std::vector<cv::Point2f> points1;
-    std::vector<cv::Point2f> points2;
-    for (const auto& match : good_matches)
-    {
-        points1.push_back(keypoints1[match.queryIdx].pt);
-        points2.push_back(keypoints2[match.trainIdx].pt);
-    }
-
-    std::vector<unsigned char> inlier_mask;
-    cv::Mat homography;
-    if (points1.size() >= 4)
-    {
-        homography = cv::findHomography(points1, points2, cv::RANSAC, kHomographyRansacThreshold, inlier_mask);
-    }
-
-    if (homography.empty())
+    if (fmd.homography.empty())
     {
         result.summary = "Unable to estimate a stable alignment between the two images.";
         return result;
     }
 
-    result.alignment_inliers = static_cast<int>(std::count(inlier_mask.begin(), inlier_mask.end(), 1));
-    if (!good_matches.empty())
+    result.alignment_inliers =
+        static_cast<int>(std::count(fmd.inlier_mask.begin(), fmd.inlier_mask.end(), 1));
+    if (!fmd.good_matches.empty())
     {
         result.alignment_inlier_ratio = static_cast<double>(result.alignment_inliers) /
-                                        static_cast<double>(good_matches.size());
+                                        static_cast<double>(fmd.good_matches.size());
     }
 
     cv::Mat aligned1;
-    cv::warpPerspective(resized1, aligned1, homography, resized2.size(), cv::INTER_LINEAR, cv::BORDER_REFLECT);
+    cv::warpPerspective(fmd.resized1, aligned1, fmd.homography, fmd.resized2.size(),
+                        cv::INTER_LINEAR, cv::BORDER_REFLECT);
 
-    const cv::Mat change_mask = computeChangeMask(aligned1, resized2);
+    const cv::Mat change_mask = computeChangeMask(aligned1, fmd.resized2);
     result.changed_regions = countChangedRegions(change_mask);
     result.changed_area_ratio = static_cast<double>(cv::countNonZero(change_mask)) /
                                 static_cast<double>(change_mask.total());
 
-    result.unchanged_similarity = computeUnchangedSimilarity(aligned1, resized2, change_mask);
-    result.cleanup_consistency = computeCleanupConsistency(aligned1, resized2, change_mask);
-    exportArtifacts(resized1, aligned1, resized2, change_mask,
-                    keypoints1, keypoints2, good_matches, inlier_mask,
+    result.unchanged_similarity = computeUnchangedSimilarity(aligned1, fmd.resized2, change_mask);
+    result.cleanup_consistency = computeCleanupConsistency(aligned1, fmd.resized2, change_mask);
+    exportArtifacts(fmd.resized1, aligned1, fmd.resized2, change_mask,
+                    fmd.keypoints1, fmd.keypoints2, fmd.good_matches, fmd.inlier_mask,
                     output_directory, result);
 
     const double alignment_score = utils::clamp01(0.60 * result.alignment_inlier_ratio +

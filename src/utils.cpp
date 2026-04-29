@@ -1,5 +1,6 @@
 #include "utils.hpp"
 
+#include <opencv2/calib3d.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -8,8 +9,86 @@
 #include <sstream>
 #include <stdexcept>
 
+namespace
+{
+constexpr int kMaxSide = 1400;
+constexpr int kMaxFeatures = 2500;
+constexpr float kRatioTest = 0.75f;
+constexpr double kHomographyRansacThreshold = 5.0;
+}  // namespace
+
 namespace utils
 {
+FeatureMatchData computeFeatureAlignment(const cv::Mat& image1, const cv::Mat& image2)
+{
+    FeatureMatchData data;
+    if (image1.empty() || image2.empty())
+    {
+        return data;
+    }
+
+    data.resized1 = resizeToMaxSide(image1, kMaxSide);
+    data.resized2 = resizeToMaxSide(image2, kMaxSide);
+    cv::cvtColor(data.resized1, data.gray1, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(data.resized2, data.gray2, cv::COLOR_BGR2GRAY);
+
+    cv::Ptr<cv::Feature2D> detector;
+    int matcher_norm = cv::NORM_L2;
+    try
+    {
+        detector = cv::SIFT::create(kMaxFeatures);
+    }
+    catch (const cv::Exception&)
+    {
+        detector = cv::ORB::create(kMaxFeatures);
+        matcher_norm = cv::NORM_HAMMING;
+    }
+
+    cv::Mat descriptors1;
+    cv::Mat descriptors2;
+    detector->detectAndCompute(data.gray1, cv::noArray(), data.keypoints1, descriptors1);
+    detector->detectAndCompute(data.gray2, cv::noArray(), data.keypoints2, descriptors2);
+
+    if (descriptors1.empty() || descriptors2.empty())
+    {
+        return data;
+    }
+
+    data.descriptors_available = true;
+
+    cv::BFMatcher matcher(matcher_norm);
+    std::vector<std::vector<cv::DMatch>> knn_matches;
+    matcher.knnMatch(descriptors1, descriptors2, knn_matches, 2);
+
+    data.good_matches.reserve(knn_matches.size());
+    for (const auto& pair : knn_matches)
+    {
+        if (pair.size() >= 2 && pair[0].distance < kRatioTest * pair[1].distance)
+        {
+            data.good_matches.push_back(pair[0]);
+        }
+    }
+
+    std::vector<cv::Point2f> points1;
+    std::vector<cv::Point2f> points2;
+    points1.reserve(data.good_matches.size());
+    points2.reserve(data.good_matches.size());
+    for (const auto& match : data.good_matches)
+    {
+        points1.push_back(data.keypoints1[match.queryIdx].pt);
+        points2.push_back(data.keypoints2[match.trainIdx].pt);
+    }
+
+    if (points1.size() >= 4)
+    {
+        data.homography = cv::findHomography(
+            points1, points2, cv::RANSAC, kHomographyRansacThreshold, data.inlier_mask);
+    }
+
+    return data;
+}
+
+
 cv::Mat loadColorImage(const std::string& path)
 {
     cv::Mat image = cv::imread(path, cv::IMREAD_COLOR);

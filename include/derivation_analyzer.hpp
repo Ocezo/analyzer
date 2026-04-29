@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utils.hpp"
+
 #include <opencv2/core.hpp>
 
 #include <string>
@@ -25,7 +27,11 @@ struct DerivationAnalysisResult
 class DerivationAnalyzer
 {
 public:
+    // Convenience overload: computes feature alignment internally.
     DerivationAnalysisResult analyze(const cv::Mat& image1,
                                      const cv::Mat& image2,
+                                     const std::string& output_directory = "") const;
+    // Primary overload: uses pre-computed feature alignment (avoids redundant computation).
+    DerivationAnalysisResult analyze(const utils::FeatureMatchData& fmd,
                                      const std::string& output_directory = "") const;
 };

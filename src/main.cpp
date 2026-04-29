@@ -64,8 +64,10 @@ int main(int argc, char** argv)
         DerivationAnalyzer derivation_analyzer;
         AiDetector ai_detector;
 
-        const ContextAnalysisResult context = context_analyzer.analyze(image1, image2);
-        const DerivationAnalysisResult derivation = derivation_analyzer.analyze(image1, image2, output_directory);
+        // Feature detection + matching + homography computed once, shared by both analyzers.
+        const utils::FeatureMatchData fmd = utils::computeFeatureAlignment(image1, image2);
+        const ContextAnalysisResult context = context_analyzer.analyze(fmd);
+        const DerivationAnalysisResult derivation = derivation_analyzer.analyze(fmd, output_directory);
         const AiDetectionResult ai1 = ai_detector.analyze(image1);
         const AiDetectionResult ai2 = ai_detector.analyze(image2);
         const std::vector<AiDetectionResult> ai_results = {ai1, ai2};

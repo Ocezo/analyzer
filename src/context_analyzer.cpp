@@ -2,8 +2,6 @@
 
 #include "utils.hpp"
 
-#include <opencv2/calib3d.hpp>
-#include <opencv2/features2d.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
@@ -11,58 +9,37 @@
 
 namespace
 {
-constexpr int kMaxSide = 1400;
-constexpr int kMaxFeatures = 2500;
-constexpr float kRatioTest = 0.75f;
-constexpr double kHomographyRansacThreshold = 5.0;
 constexpr double kDecisionThreshold = 0.50;
 }  // namespace
 
 ContextAnalysisResult ContextAnalyzer::analyze(const cv::Mat& image1, const cv::Mat& image2) const
 {
     ContextAnalysisResult result;
-
     if (image1.empty() || image2.empty())
     {
         result.summary = "At least one input image is empty.";
         return result;
     }
+    return analyze(utils::computeFeatureAlignment(image1, image2));
+}
 
-    const cv::Mat resized1 = utils::resizeToMaxSide(image1, kMaxSide);
-    const cv::Mat resized2 = utils::resizeToMaxSide(image2, kMaxSide);
+ContextAnalysisResult ContextAnalyzer::analyze(const utils::FeatureMatchData& fmd) const
+{
+    ContextAnalysisResult result;
 
-    cv::Mat gray1;
-    cv::Mat gray2;
-    cv::cvtColor(resized1, gray1, cv::COLOR_BGR2GRAY);
-    cv::cvtColor(resized2, gray2, cv::COLOR_BGR2GRAY);
-
-    cv::Ptr<cv::Feature2D> detector;
-    int matcher_norm = cv::NORM_L2;
-
-    try
+    if (fmd.resized1.empty() || fmd.resized2.empty())
     {
-        detector = cv::SIFT::create(kMaxFeatures);
-    }
-    catch (const cv::Exception&)
-    {
-        detector = cv::ORB::create(kMaxFeatures);
-        matcher_norm = cv::NORM_HAMMING;
+        result.summary = "At least one input image is empty.";
+        return result;
     }
 
-    std::vector<cv::KeyPoint> keypoints1;
-    std::vector<cv::KeyPoint> keypoints2;
-    cv::Mat descriptors1;
-    cv::Mat descriptors2;
-    detector->detectAndCompute(gray1, cv::noArray(), keypoints1, descriptors1);
-    detector->detectAndCompute(gray2, cv::noArray(), keypoints2, descriptors2);
+    result.keypoints_image1 = static_cast<int>(fmd.keypoints1.size());
+    result.keypoints_image2 = static_cast<int>(fmd.keypoints2.size());
+    result.color_similarity = utils::compareColorHistograms(fmd.resized1, fmd.resized2);
+    result.texture_similarity = utils::computeTextureSimilarity(fmd.gray1, fmd.gray2);
+    result.structural_similarity = utils::computeStructuralSimilarity(fmd.gray1, fmd.gray2);
 
-    result.keypoints_image1 = static_cast<int>(keypoints1.size());
-    result.keypoints_image2 = static_cast<int>(keypoints2.size());
-    result.color_similarity = utils::compareColorHistograms(resized1, resized2);
-    result.texture_similarity = utils::computeTextureSimilarity(gray1, gray2);
-    result.structural_similarity = utils::computeStructuralSimilarity(gray1, gray2);
-
-    if (descriptors1.empty() || descriptors2.empty())
+    if (!fmd.descriptors_available)
     {
         result.score = utils::clamp01(0.45 * result.structural_similarity +
                                       0.35 * result.color_similarity +
@@ -72,56 +49,22 @@ ContextAnalysisResult ContextAnalyzer::analyze(const cv::Mat& image1, const cv::
         return result;
     }
 
-    cv::BFMatcher matcher(matcher_norm);
-    std::vector<std::vector<cv::DMatch>> knn_matches;
-    matcher.knnMatch(descriptors1, descriptors2, knn_matches, 2);
-
-    std::vector<cv::DMatch> good_matches;
-    good_matches.reserve(knn_matches.size());
-
-    for (const auto& pair : knn_matches)
+    result.good_matches = static_cast<int>(fmd.good_matches.size());
+    result.homography_inliers =
+        static_cast<int>(std::count(fmd.inlier_mask.begin(), fmd.inlier_mask.end(), 1));
+    if (!fmd.good_matches.empty())
     {
-        if (pair.size() < 2)
-        {
-            continue;
-        }
-
-        if (pair[0].distance < kRatioTest * pair[1].distance)
-        {
-            good_matches.push_back(pair[0]);
-        }
+        result.inlier_ratio = static_cast<double>(result.homography_inliers) /
+                              static_cast<double>(fmd.good_matches.size());
     }
 
-    result.good_matches = static_cast<int>(good_matches.size());
-
-    std::vector<cv::Point2f> points1;
-    std::vector<cv::Point2f> points2;
-    points1.reserve(good_matches.size());
-    points2.reserve(good_matches.size());
-
-    for (const auto& match : good_matches)
-    {
-        points1.push_back(keypoints1[match.queryIdx].pt);
-        points2.push_back(keypoints2[match.trainIdx].pt);
-    }
-
-    std::vector<unsigned char> inlier_mask;
-    if (points1.size() >= 4)
-    {
-        cv::findHomography(points1, points2, cv::RANSAC, kHomographyRansacThreshold, inlier_mask);
-    }
-
-    result.homography_inliers = static_cast<int>(std::count(inlier_mask.begin(), inlier_mask.end(), 1));
-    if (!good_matches.empty())
-    {
-        result.inlier_ratio = static_cast<double>(result.homography_inliers) / static_cast<double>(good_matches.size());
-    }
-
-    const double match_score = computeMatchScore(resized1, resized2, keypoints1, keypoints2, good_matches, inlier_mask);
+    const double match_score = computeMatchScore(
+        fmd.resized1, fmd.resized2, fmd.keypoints1, fmd.keypoints2, fmd.good_matches, fmd.inlier_mask);
     result.score = utils::clamp01(0.35 * match_score +
                                   0.30 * result.structural_similarity +
                                   0.20 * result.color_similarity +
                                   0.15 * result.texture_similarity);
+
     // Strong geometric evidence OR consistent global appearance (covers scenes where feature
     // matching is unreliable: plants, water, repetitive textures).
     result.same_context = result.score >= kDecisionThreshold &&

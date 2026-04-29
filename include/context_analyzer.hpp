@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utils.hpp"
+
 #include <opencv2/core.hpp>
 
 #include <string>
@@ -24,7 +26,10 @@ struct ContextAnalysisResult
 class ContextAnalyzer
 {
 public:
+    // Convenience overload: computes feature alignment internally.
     ContextAnalysisResult analyze(const cv::Mat& image1, const cv::Mat& image2) const;
+    // Primary overload: uses pre-computed feature alignment (avoids redundant computation).
+    ContextAnalysisResult analyze(const utils::FeatureMatchData& fmd) const;
 
 private:
     static double computeMatchScore(const cv::Mat& image1,

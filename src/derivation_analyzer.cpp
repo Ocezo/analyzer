@@ -15,6 +15,13 @@
 namespace
 {
 constexpr int kMaxSide = 1400;
+
+void drawCross(cv::Mat& img, cv::Point2f pt, const cv::Scalar& color, int arm = 5)
+{
+    const cv::Point p(cvRound(pt.x), cvRound(pt.y));
+    cv::line(img, {p.x - arm, p.y}, {p.x + arm, p.y}, color, 1, cv::LINE_AA);
+    cv::line(img, {p.x, p.y - arm}, {p.x, p.y + arm}, color, 1, cv::LINE_AA);
+}
 constexpr int kMaxFeatures = 2500;
 constexpr float kRatioTest = 0.78f;
 constexpr double kHomographyRansacThreshold = 5.0;
@@ -182,9 +189,14 @@ double computeUnchangedSimilarity(const cv::Mat& aligned1, const cv::Mat& image2
     return utils::clamp01(1.0 - mean_difference[0] / 255.0);
 }
 
-void exportArtifacts(const cv::Mat& aligned1,
+void exportArtifacts(const cv::Mat& resized1,
+                     const cv::Mat& aligned1,
                      const cv::Mat& image2,
                      const cv::Mat& change_mask,
+                     const std::vector<cv::KeyPoint>& keypoints1,
+                     const std::vector<cv::KeyPoint>& keypoints2,
+                     const std::vector<cv::DMatch>& good_matches,
+                     const std::vector<unsigned char>& inlier_mask,
                      const std::string& output_directory,
                      DerivationAnalysisResult& result)
 {
@@ -199,6 +211,7 @@ void exportArtifacts(const cv::Mat& aligned1,
     const std::filesystem::path aligned_path = base / "aligned_image1_to_image2.jpg";
     const std::filesystem::path mask_path = base / "derivation_change_mask.png";
     const std::filesystem::path overlay_path = base / "derivation_overlay.jpg";
+    const std::filesystem::path matches_path = base / "homography_matches.jpg";
 
     cv::Mat overlay = image2.clone();
     cv::Mat red_overlay(image2.size(), image2.type(), cv::Scalar(0, 0, 255));
@@ -216,6 +229,36 @@ void exportArtifacts(const cv::Mat& aligned1,
     result.aligned_image_path = aligned_path.string();
     result.change_mask_path = mask_path.string();
     result.overlay_path = overlay_path.string();
+
+    // --- Homography matches visualization ---
+    cv::Mat canvas;
+    cv::hconcat(resized1, image2, canvas);
+    const int offset = resized1.cols;
+
+    // Green crosses: all detected keypoints
+    for (const auto& kp : keypoints1)
+        drawCross(canvas, kp.pt, cv::Scalar(0, 200, 0));
+    for (const auto& kp : keypoints2)
+        drawCross(canvas, {kp.pt.x + static_cast<float>(offset), kp.pt.y}, cv::Scalar(0, 200, 0));
+
+    // White lines then red crosses: RANSAC inliers
+    for (size_t i = 0; i < good_matches.size(); ++i)
+    {
+        if (i >= inlier_mask.size() || !inlier_mask[i])
+            continue;
+        const cv::Point2f pt1 = keypoints1[good_matches[i].queryIdx].pt;
+        const cv::Point2f pt2 = {keypoints2[good_matches[i].trainIdx].pt.x + static_cast<float>(offset),
+                                  keypoints2[good_matches[i].trainIdx].pt.y};
+        cv::line(canvas,
+                 cv::Point(cvRound(pt1.x), cvRound(pt1.y)),
+                 cv::Point(cvRound(pt2.x), cvRound(pt2.y)),
+                 cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
+        drawCross(canvas, pt1, cv::Scalar(0, 0, 255));
+        drawCross(canvas, pt2, cv::Scalar(0, 0, 255));
+    }
+
+    cv::imwrite(matches_path.string(), canvas);
+    result.homography_matches_path = matches_path.string();
 }
 }  // namespace
 
@@ -316,7 +359,9 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1,
 
     result.unchanged_similarity = computeUnchangedSimilarity(aligned1, resized2, change_mask);
     result.cleanup_consistency = computeCleanupConsistency(aligned1, resized2, change_mask);
-    exportArtifacts(aligned1, resized2, change_mask, output_directory, result);
+    exportArtifacts(resized1, aligned1, resized2, change_mask,
+                    keypoints1, keypoints2, good_matches, inlier_mask,
+                    output_directory, result);
 
     const double alignment_score = utils::clamp01(0.60 * result.alignment_inlier_ratio +
                                                   0.40 * std::min(1.0, result.alignment_inliers / 25.0));

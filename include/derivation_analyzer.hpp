@@ -18,6 +18,7 @@ struct DerivationAnalysisResult
     std::string aligned_image_path;
     std::string change_mask_path;
     std::string overlay_path;
+    std::string homography_matches_path;
     std::string summary;
 };
 

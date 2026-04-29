@@ -129,6 +129,19 @@ ContextAnalysisResult ContextAnalyzer::analyze(const cv::Mat& image1, const cv::
                            (result.homography_inliers >= 12 && result.inlier_ratio >= 0.25) ||
                            (result.color_similarity >= 0.70 && result.texture_similarity >= 0.80));
 
+    if (result.homography_inliers >= 25 && result.score >= 0.70)
+    {
+        result.confidence = "High";
+    }
+    else if (result.homography_inliers >= 8 || result.structural_similarity >= 0.70)
+    {
+        result.confidence = "Medium";
+    }
+    else
+    {
+        result.confidence = "Low";
+    }
+
     std::ostringstream summary;
     summary << "Feature matches: " << result.good_matches
             << ", homography inliers: " << result.homography_inliers

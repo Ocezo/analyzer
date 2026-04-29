@@ -17,6 +17,7 @@ struct ContextAnalysisResult
     double color_similarity = 0.0;
     double texture_similarity = 0.0;
     double structural_similarity = 0.0;
+    std::string confidence;
     std::string summary;
 };
 

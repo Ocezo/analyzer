@@ -73,7 +73,8 @@ int main(int argc, char** argv)
 
         std::cout << "[Context Similarity]\n";
         std::cout << "Score: " << utils::formatScore(context.score)
-                  << " -> Same scene: " << yesNo(context.same_context) << '\n';
+                  << " -> Same scene: " << yesNo(context.same_context)
+                  << " [" << context.confidence << " confidence]\n";
         std::cout << "Details: " << context.summary << '\n';
         std::cout << "Keypoints: " << context.keypoints_image1
                   << " / " << context.keypoints_image2
@@ -82,7 +83,8 @@ int main(int argc, char** argv)
 
         std::cout << "[Derivation Analysis]\n";
         std::cout << "Score: " << utils::formatScore(derivation.score)
-                  << " -> Image 2 from Image 1: " << yesNo(derivation.likely_derived) << '\n';
+                  << " -> Image 2 from Image 1: " << yesNo(derivation.likely_derived)
+                  << " [" << derivation.confidence << " confidence]\n";
         std::cout << "Details: " << derivation.summary << "\n\n";
         if (!derivation.overlay_path.empty())
         {

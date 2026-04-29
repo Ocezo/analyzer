@@ -71,13 +71,26 @@ cv::Mat computeChangeMask(const cv::Mat& aligned1, const cv::Mat& image2)
     const int component_count = cv::connectedComponentsWithStats(binary_mask, labels, stats, centroids, 8, CV_32S);
 
     cv::Mat filtered_mask = cv::Mat::zeros(binary_mask.size(), CV_8U);
-    const int min_component_area = std::max(250, binary_mask.total() > 0 ? static_cast<int>(binary_mask.total() / 1200) : 250);
+    // Require larger minimum area (1/600 of image instead of 1/1200) to suppress
+    // small wind-induced leaf / texture movement artefacts.
+    const int total_px = static_cast<int>(binary_mask.total());
+    const int min_component_area = std::max(400, total_px > 0 ? total_px / 600 : 400);
     for (int label = 1; label < component_count; ++label)
     {
-        if (stats.at<int>(label, cv::CC_STAT_AREA) >= min_component_area)
+        const int area = stats.at<int>(label, cv::CC_STAT_AREA);
+        if (area < min_component_area)
         {
-            filtered_mask.setTo(255, labels == label);
+            continue;
         }
+        // Discard very thin/elongated regions (alignment border artefacts).
+        const int w = stats.at<int>(label, cv::CC_STAT_WIDTH);
+        const int h = stats.at<int>(label, cv::CC_STAT_HEIGHT);
+        const double aspect = static_cast<double>(std::max(w, h)) / static_cast<double>(std::max(std::min(w, h), 1));
+        if (aspect > 12.0)
+        {
+            continue;
+        }
+        filtered_mask.setTo(255, labels == label);
     }
 
     return filtered_mask;
@@ -307,7 +320,14 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1,
 
     const double alignment_score = utils::clamp01(0.60 * result.alignment_inlier_ratio +
                                                   0.40 * std::min(1.0, result.alignment_inliers / 25.0));
-    const double change_score = utils::clamp01(result.changed_area_ratio / 0.12);
+    // Bell-curve change score: rises to 1.0 at ~10%, stays flat up to 35%, then
+    // declines for very large changes (> 80% likely indicates alignment failure).
+    const double area = result.changed_area_ratio;
+    const double change_score = area < 0.003
+                                    ? 0.0
+                                    : area <= 0.35
+                                          ? utils::clamp01(area / 0.10)
+                                          : utils::clamp01(1.0 - (area - 0.35) / 0.55);
     const double preservation_score = utils::clamp01((result.unchanged_similarity - 0.45) / 0.40);
 
     result.score = utils::clamp01(0.30 * alignment_score +
@@ -321,6 +341,19 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const cv::Mat& image1,
                             result.changed_area_ratio >= 0.005 &&
                             result.unchanged_similarity >= 0.75 &&
                             result.cleanup_consistency >= 0.40;
+
+    if (result.alignment_inliers >= 30 && result.unchanged_similarity >= 0.82 && result.score >= 0.70)
+    {
+        result.confidence = "High";
+    }
+    else if (result.alignment_inliers >= 8 || result.unchanged_similarity >= 0.76)
+    {
+        result.confidence = "Medium";
+    }
+    else
+    {
+        result.confidence = "Low";
+    }
 
     std::ostringstream summary;
     summary << "Alignment inliers: " << result.alignment_inliers

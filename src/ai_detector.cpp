@@ -245,10 +245,10 @@ double computeEdgeUniformitySuspicion(const cv::Mat& gray)
     }
     const double energy_stddev = std::sqrt(sq_sum / static_cast<double>(patch_energies.size()));
     // Low coefficient of variation → unnaturally uniform edge distribution → suspicious.
-    // Real photos naturally vary (depth-of-field, local textures): CV > 0.45 is normal.
-    // AI images often sit below 0.25.
+    // Real photos naturally vary (depth-of-field, local textures): CV > 0.35 is normal.
+    // AI images often sit below 0.15.
     const double cv_ratio = energy_stddev / std::max(mean_energy, 1.0);
-    return utils::clamp01((0.35 - cv_ratio) / 0.35);
+    return utils::clamp01((0.25 - cv_ratio) / 0.25);
 }
 
 }  // namespace

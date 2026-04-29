@@ -14,6 +14,7 @@ struct DerivationAnalysisResult
     double changed_area_ratio = 0.0;
     double unchanged_similarity = 0.0;
     double cleanup_consistency = 0.0;
+    std::string confidence;
     std::string aligned_image_path;
     std::string change_mask_path;
     std::string overlay_path;

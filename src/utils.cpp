@@ -51,24 +51,47 @@ double compareColorHistograms(const cv::Mat& image1, const cv::Mat& image2)
     cv::cvtColor(image1, hsv1, cv::COLOR_BGR2HSV);
     cv::cvtColor(image2, hsv2, cv::COLOR_BGR2HSV);
 
-    // Hue (0-180) with 36 bins, Saturation (0-256) with 32 bins.
-    // Value channel is omitted: lighting changes strongly affect it but not scene identity.
+    // HS histogram (Hue × Saturation) on saturated pixels only: pixels with
+    // low saturation (grey, white, black) have an unstable/undefined Hue and
+    // would inflate the Bhattacharyya distance even for identical scenes.
+    // Saturation threshold = 30/255 in 8-bit → pixels must be at least faintly coloured.
+    cv::Mat sat_mask1;
+    cv::Mat sat_mask2;
+    cv::extractChannel(hsv1, sat_mask1, 1);
+    cv::extractChannel(hsv2, sat_mask2, 1);
+    cv::threshold(sat_mask1, sat_mask1, 30, 255, cv::THRESH_BINARY);
+    cv::threshold(sat_mask2, sat_mask2, 30, 255, cv::THRESH_BINARY);
+
     const int hs_bins[] = {36, 32};
     const float h_range[] = {0.0f, 180.0f};
     const float s_range[] = {0.0f, 256.0f};
     const float* hs_ranges[] = {h_range, s_range};
     const int hs_channels[] = {0, 1};
 
-    cv::Mat hist1;
-    cv::Mat hist2;
-    cv::calcHist(&hsv1, 1, hs_channels, cv::Mat(), hist1, 2, hs_bins, hs_ranges, true, false);
-    cv::calcHist(&hsv2, 1, hs_channels, cv::Mat(), hist2, 2, hs_bins, hs_ranges, true, false);
+    cv::Mat hs_hist1;
+    cv::Mat hs_hist2;
+    cv::calcHist(&hsv1, 1, hs_channels, sat_mask1, hs_hist1, 2, hs_bins, hs_ranges, true, false);
+    cv::calcHist(&hsv2, 1, hs_channels, sat_mask2, hs_hist2, 2, hs_bins, hs_ranges, true, false);
+    cv::normalize(hs_hist1, hs_hist1, 1.0, 0.0, cv::NORM_L1);
+    cv::normalize(hs_hist2, hs_hist2, 1.0, 0.0, cv::NORM_L1);
+    const double hs_bhattacharyya = cv::compareHist(hs_hist1, hs_hist2, cv::HISTCMP_BHATTACHARYYA);
 
-    cv::normalize(hist1, hist1, 1.0, 0.0, cv::NORM_L1);
-    cv::normalize(hist2, hist2, 1.0, 0.0, cv::NORM_L1);
+    // V (brightness) histogram on all pixels: captures overall luminance profile.
+    const int v_bins[] = {32};
+    const float v_range[] = {0.0f, 256.0f};
+    const float* v_ranges[] = {v_range};
+    const int v_channels[] = {2};
 
-    const double bhattacharyya = cv::compareHist(hist1, hist2, cv::HISTCMP_BHATTACHARYYA);
-    return clamp01(1.0 - bhattacharyya);
+    cv::Mat v_hist1;
+    cv::Mat v_hist2;
+    cv::calcHist(&hsv1, 1, v_channels, cv::Mat(), v_hist1, 1, v_bins, v_ranges, true, false);
+    cv::calcHist(&hsv2, 1, v_channels, cv::Mat(), v_hist2, 1, v_bins, v_ranges, true, false);
+    cv::normalize(v_hist1, v_hist1, 1.0, 0.0, cv::NORM_L1);
+    cv::normalize(v_hist2, v_hist2, 1.0, 0.0, cv::NORM_L1);
+    const double v_bhattacharyya = cv::compareHist(v_hist1, v_hist2, cv::HISTCMP_BHATTACHARYYA);
+
+    // HS is a stronger indicator of scene identity; V tolerates lighting variation.
+    return clamp01(0.70 * (1.0 - hs_bhattacharyya) + 0.30 * (1.0 - v_bhattacharyya));
 }
 
 double computeTextureSimilarity(const cv::Mat& image1, const cv::Mat& image2)

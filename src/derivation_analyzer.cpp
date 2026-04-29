@@ -22,18 +22,34 @@ constexpr double kDecisionThreshold = 0.55;
 
 cv::Mat computeChangeMask(const cv::Mat& aligned1, const cv::Mat& image2)
 {
-    cv::Mat gray1;
-    cv::Mat gray2;
-    cv::cvtColor(aligned1, gray1, cv::COLOR_BGR2GRAY);
-    cv::cvtColor(image2, gray2, cv::COLOR_BGR2GRAY);
+    // Work in Lab so that perceptual color differences (not just luminance) are captured.
+    // This detects objects removed even if they have similar brightness to the background.
+    cv::Mat lab1;
+    cv::Mat lab2;
+    cv::cvtColor(aligned1, lab1, cv::COLOR_BGR2Lab);
+    cv::cvtColor(image2, lab2, cv::COLOR_BGR2Lab);
 
     cv::Mat blur1;
     cv::Mat blur2;
-    cv::GaussianBlur(gray1, blur1, cv::Size(7, 7), 0.0);
-    cv::GaussianBlur(gray2, blur2, cv::Size(7, 7), 0.0);
+    cv::GaussianBlur(lab1, blur1, cv::Size(7, 7), 0.0);
+    cv::GaussianBlur(lab2, blur2, cv::Size(7, 7), 0.0);
 
+    // Per-channel absolute difference then merge into a single perceptual distance map.
+    std::vector<cv::Mat> diff_channels(3);
+    for (int c = 0; c < 3; ++c)
+    {
+        cv::Mat ch1;
+        cv::Mat ch2;
+        cv::extractChannel(blur1, ch1, c);
+        cv::extractChannel(blur2, ch2, c);
+        cv::absdiff(ch1, ch2, diff_channels[c]);
+        diff_channels[c].convertTo(diff_channels[c], CV_32F);
+    }
+
+    // deltaE approximation: weight L* less than a*/b* to tolerate illumination variation.
     cv::Mat difference;
-    cv::absdiff(blur1, blur2, difference);
+    cv::Mat weighted = 0.5f * diff_channels[0] + 0.85f * diff_channels[1] + 0.85f * diff_channels[2];
+    weighted.convertTo(difference, CV_8U, 1.0, 0.0);
 
     cv::Mat binary_mask;
     cv::threshold(difference, binary_mask, 0.0, 255.0, cv::THRESH_BINARY | cv::THRESH_OTSU);
@@ -85,13 +101,7 @@ double computeCleanupConsistency(const cv::Mat& aligned1, const cv::Mat& image2,
     cv::cvtColor(aligned1, gray1, cv::COLOR_BGR2GRAY);
     cv::cvtColor(image2, gray2, cv::COLOR_BGR2GRAY);
 
-    cv::Scalar mean1;
-    cv::Scalar stddev1;
-    cv::Scalar mean2;
-    cv::Scalar stddev2;
-    cv::meanStdDev(gray1, mean1, stddev1, change_mask);
-    cv::meanStdDev(gray2, mean2, stddev2, change_mask);
-
+    // (a) Changed regions in image1 should have MORE detail than in image2 (object removed).
     cv::Mat laplacian1;
     cv::Mat laplacian2;
     cv::Laplacian(gray1, laplacian1, CV_32F, 3);
@@ -101,17 +111,38 @@ double computeCleanupConsistency(const cv::Mat& aligned1, const cv::Mat& image2,
 
     const cv::Scalar mean_detail1 = cv::mean(abs_laplacian1, change_mask);
     const cv::Scalar mean_detail2 = cv::mean(abs_laplacian2, change_mask);
-
     const double detail_delta = mean_detail1[0] - mean_detail2[0];
     const double detail_scale = std::max({mean_detail1[0], mean_detail2[0], 1.0});
-    const double variance_delta = stddev1[0] - stddev2[0];
-    const double variance_scale = std::max({stddev1[0], stddev2[0], 1.0});
-    const double brightness_gap = std::abs(mean1[0] - mean2[0]);
-    const double brightness_score = utils::clamp01(1.0 - brightness_gap / 64.0);
+    const double object_removal_score = utils::clamp01(0.5 + 0.5 * detail_delta / detail_scale);
 
-    return utils::clamp01(0.50 * (0.5 + 0.5 * detail_delta / detail_scale) +
-                          0.35 * (0.5 + 0.5 * variance_delta / variance_scale) +
-                          0.15 * brightness_score);
+    // (b) Variance in changed regions should be lower in image2 (background is smoother).
+    cv::Scalar m1, sd1, m2, sd2;
+    cv::meanStdDev(gray1, m1, sd1, change_mask);
+    cv::meanStdDev(gray2, m2, sd2, change_mask);
+    const double variance_delta = sd1[0] - sd2[0];
+    const double variance_scale = std::max({sd1[0], sd2[0], 1.0});
+    const double smoothing_score = utils::clamp01(0.5 + 0.5 * variance_delta / variance_scale);
+
+    // (c) Background-consistency: changed pixels in image2 should resemble the surrounding
+    //     unchanged area in image2 (typical signature of inpainting / copy-fill cleanup).
+    cv::Mat border_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(21, 21));
+    cv::Mat dilated_mask;
+    cv::dilate(change_mask, dilated_mask, border_kernel);
+    cv::Mat border_mask;
+    cv::bitwise_xor(dilated_mask, change_mask, border_mask);
+
+    double bg_similarity = 0.5;
+    if (cv::countNonZero(border_mask) > 0)
+    {
+        const cv::Scalar bg_mean = cv::mean(gray2, border_mask);
+        const cv::Scalar fg_mean = cv::mean(gray2, change_mask);
+        const double brightness_gap = std::abs(bg_mean[0] - fg_mean[0]);
+        bg_similarity = utils::clamp01(1.0 - brightness_gap / 48.0);
+    }
+
+    return utils::clamp01(0.45 * object_removal_score +
+                          0.30 * smoothing_score +
+                          0.25 * bg_similarity);
 }
 
 double computeUnchangedSimilarity(const cv::Mat& aligned1, const cv::Mat& image2, const cv::Mat& change_mask)

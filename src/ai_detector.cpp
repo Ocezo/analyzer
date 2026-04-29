@@ -25,6 +25,15 @@ cv::Mat prepareGrayImage(const cv::Mat& image)
     return gray;
 }
 
+cv::Mat prepareGrayForJpeg(const cv::Mat& image)
+{
+    // Keep original resolution (max 1024) so that JPEG 8x8 block boundaries are preserved.
+    cv::Mat resized = utils::resizeToMaxSide(image, 1024);
+    cv::Mat gray;
+    cv::cvtColor(resized, gray, cv::COLOR_BGR2GRAY);
+    return gray;
+}
+
 double computeNoiseSuspicion(const cv::Mat& gray)
 {
     cv::Mat blurred;
@@ -199,6 +208,49 @@ double computeFrequencySuspicion(const cv::Mat& gray)
     return utils::clamp01((peak_zscore - 3.5) / 4.5);
 }
 
+// AI-generated images tend to have unnaturally uniform edge sharpness across the image:
+// real photos show high local variation (sharp foreground, blurry background, noise).
+double computeEdgeUniformitySuspicion(const cv::Mat& gray)
+{
+    cv::Mat sobelx;
+    cv::Mat sobely;
+    cv::Sobel(gray, sobelx, CV_32F, 1, 0, 3);
+    cv::Sobel(gray, sobely, CV_32F, 0, 1, 3);
+
+    cv::Mat gradient_magnitude;
+    cv::magnitude(sobelx, sobely, gradient_magnitude);
+
+    std::vector<double> patch_energies;
+    for (int y = 0; y + kPatchSize <= gradient_magnitude.rows; y += kPatchSize)
+    {
+        for (int x = 0; x + kPatchSize <= gradient_magnitude.cols; x += kPatchSize)
+        {
+            const cv::Rect roi(x, y, kPatchSize, kPatchSize);
+            const cv::Scalar m = cv::mean(gradient_magnitude(roi));
+            patch_energies.push_back(m[0]);
+        }
+    }
+
+    if (patch_energies.size() < 4)
+    {
+        return 0.0;
+    }
+
+    const double mean_energy = std::accumulate(patch_energies.begin(), patch_energies.end(), 0.0) /
+                               static_cast<double>(patch_energies.size());
+    double sq_sum = 0.0;
+    for (double v : patch_energies)
+    {
+        sq_sum += (v - mean_energy) * (v - mean_energy);
+    }
+    const double energy_stddev = std::sqrt(sq_sum / static_cast<double>(patch_energies.size()));
+    // Low coefficient of variation → unnaturally uniform edge distribution → suspicious.
+    // Real photos naturally vary (depth-of-field, local textures): CV > 0.45 is normal.
+    // AI images often sit below 0.25.
+    const double cv_ratio = energy_stddev / std::max(mean_energy, 1.0);
+    return utils::clamp01((0.35 - cv_ratio) / 0.35);
+}
+
 }  // namespace
 
 std::string AiDetector::suspicionLabel(double score)
@@ -225,19 +277,24 @@ AiDetectionResult AiDetector::analyze(const cv::Mat& image) const
     }
 
     const cv::Mat gray = prepareGrayImage(image);
+    const cv::Mat gray_full = prepareGrayForJpeg(image);
 
     result.noise_score = computeNoiseSuspicion(gray);
-    result.jpeg_score = computeJpegSuspicion(gray);
+    result.jpeg_score = computeJpegSuspicion(gray_full);
     result.frequency_score = computeFrequencySuspicion(gray);
-    result.score = utils::clamp01(0.45 * result.noise_score +
-                                  0.30 * result.frequency_score +
-                                  0.25 * result.jpeg_score);
+    // Use the larger (1024px) image for edge analysis: more patches → better statistics.
+    result.edge_uniformity_score = computeEdgeUniformitySuspicion(gray_full);
+    result.score = utils::clamp01(0.35 * result.noise_score +
+                                  0.25 * result.frequency_score +
+                                  0.25 * result.jpeg_score +
+                                  0.15 * result.edge_uniformity_score);
 
     std::ostringstream summary;
     summary << AiDetector::suspicionLabel(result.score)
             << " (noise: " << utils::formatScore(result.noise_score)
             << ", jpeg: " << utils::formatScore(result.jpeg_score)
-            << ", frequency: " << utils::formatScore(result.frequency_score) << ")";
+            << ", frequency: " << utils::formatScore(result.frequency_score)
+            << ", edge_uniformity: " << utils::formatScore(result.edge_uniformity_score) << ")";
     result.summary = summary.str();
 
     return result;

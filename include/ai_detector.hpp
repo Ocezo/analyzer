@@ -10,6 +10,7 @@ struct AiDetectionResult
     double noise_score = 0.0;
     double jpeg_score = 0.0;
     double frequency_score = 0.0;
+    double edge_uniformity_score = 0.0;
     std::string summary;
 };
 

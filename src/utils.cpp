@@ -46,15 +46,23 @@ double compareColorHistograms(const cv::Mat& image1, const cv::Mat& image2)
         return 0.0;
     }
 
-    const int histogram_bins[] = {8, 8, 8};
-    const float range[] = {0.0f, 256.0f};
-    const float* ranges[] = {range, range, range};
-    const int channels[] = {0, 1, 2};
+    cv::Mat hsv1;
+    cv::Mat hsv2;
+    cv::cvtColor(image1, hsv1, cv::COLOR_BGR2HSV);
+    cv::cvtColor(image2, hsv2, cv::COLOR_BGR2HSV);
+
+    // Hue (0-180) with 36 bins, Saturation (0-256) with 32 bins.
+    // Value channel is omitted: lighting changes strongly affect it but not scene identity.
+    const int hs_bins[] = {36, 32};
+    const float h_range[] = {0.0f, 180.0f};
+    const float s_range[] = {0.0f, 256.0f};
+    const float* hs_ranges[] = {h_range, s_range};
+    const int hs_channels[] = {0, 1};
 
     cv::Mat hist1;
     cv::Mat hist2;
-    cv::calcHist(&image1, 1, channels, cv::Mat(), hist1, 3, histogram_bins, ranges, true, false);
-    cv::calcHist(&image2, 1, channels, cv::Mat(), hist2, 3, histogram_bins, ranges, true, false);
+    cv::calcHist(&hsv1, 1, hs_channels, cv::Mat(), hist1, 2, hs_bins, hs_ranges, true, false);
+    cv::calcHist(&hsv2, 1, hs_channels, cv::Mat(), hist2, 2, hs_bins, hs_ranges, true, false);
 
     cv::normalize(hist1, hist1, 1.0, 0.0, cv::NORM_L1);
     cv::normalize(hist2, hist2, 1.0, 0.0, cv::NORM_L1);

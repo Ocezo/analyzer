@@ -13,7 +13,7 @@ namespace
 {
 constexpr int kMaxSide = 1400;
 constexpr int kMaxFeatures = 2500;
-constexpr float kRatioTest = 0.78f;
+constexpr float kRatioTest = 0.75f;
 constexpr double kHomographyRansacThreshold = 5.0;
 constexpr double kDecisionThreshold = 0.50;
 }  // namespace
@@ -122,9 +122,12 @@ ContextAnalysisResult ContextAnalyzer::analyze(const cv::Mat& image1, const cv::
                                   0.30 * result.structural_similarity +
                                   0.20 * result.color_similarity +
                                   0.15 * result.texture_similarity);
+    // Strong geometric evidence OR consistent global appearance (covers scenes where feature
+    // matching is unreliable: plants, water, repetitive textures).
     result.same_context = result.score >= kDecisionThreshold &&
-                          (result.structural_similarity >= 0.70 ||
-                           (result.homography_inliers >= 12 && result.inlier_ratio >= 0.25));
+                          (result.structural_similarity >= 0.67 ||
+                           (result.homography_inliers >= 12 && result.inlier_ratio >= 0.25) ||
+                           (result.color_similarity >= 0.70 && result.texture_similarity >= 0.80));
 
     std::ostringstream summary;
     summary << "Feature matches: " << result.good_matches

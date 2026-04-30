@@ -22,7 +22,7 @@ void drawCross(cv::Mat& img, cv::Point2f pt, const cv::Scalar& color, int arm = 
     cv::line(img, {p.x, p.y - arm}, {p.x, p.y + arm}, color, 1, cv::LINE_AA);
 }
 
-cv::Mat computeChangeMask(const cv::Mat& aligned1, const cv::Mat& image2)
+cv::Mat computeChangeMask(const cv::Mat& aligned1, const cv::Mat& image2, const cv::Mat& valid_mask)
 {
     // Work in Lab so that perceptual color differences (not just luminance) are captured.
     // This detects objects removed even if they have similar brightness to the background.
@@ -55,6 +55,7 @@ cv::Mat computeChangeMask(const cv::Mat& aligned1, const cv::Mat& image2)
 
     cv::Mat binary_mask;
     cv::threshold(difference, binary_mask, 0.0, 255.0, cv::THRESH_BINARY | cv::THRESH_OTSU);
+    binary_mask &= valid_mask;
 
     const int border_x = std::max(8, binary_mask.cols / 50);
     const int border_y = std::max(8, binary_mask.rows / 50);
@@ -305,7 +306,23 @@ DerivationAnalysisResult DerivationAnalyzer::analyze(const utils::FeatureMatchDa
     cv::warpPerspective(fmd.resized1, aligned1, fmd.homography, fmd.resized2.size(),
                         cv::INTER_LINEAR, cv::BORDER_CONSTANT);
 
-    const cv::Mat change_mask = computeChangeMask(aligned1, fmd.resized2);
+    const std::vector<cv::Point2f> src_corners = {
+        {0.f, 0.f},
+        {(float)fmd.resized1.cols, 0.f},
+        {(float)fmd.resized1.cols, (float)fmd.resized1.rows},
+        {0.f, (float)fmd.resized1.rows}
+    };
+    std::vector<cv::Point2f> dst_corners;
+    cv::perspectiveTransform(src_corners, dst_corners, fmd.homography);
+    cv::Mat valid_mask = cv::Mat::zeros(fmd.resized2.size(), CV_8U);
+    std::vector<cv::Point> valid_poly;
+    valid_poly.reserve(4);
+    for (const auto& p : dst_corners)
+        valid_poly.push_back({cvRound(p.x), cvRound(p.y)});
+    cv::fillConvexPoly(valid_mask, valid_poly, 255);
+    //cv::imwrite(output_directory + "/valid_mask.png", valid_mask);
+
+    const cv::Mat change_mask = computeChangeMask(aligned1, fmd.resized2, valid_mask);
     result.changed_regions = countChangedRegions(change_mask);
     result.changed_area_ratio = static_cast<double>(cv::countNonZero(change_mask)) /
                                 static_cast<double>(change_mask.total());
